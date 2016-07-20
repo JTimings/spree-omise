@@ -1,0 +1,59 @@
+<script src="https://cdn.omise.co/omise.min.js.gz"></script>
+<script>
+  <% payment_method = Spree::PaymentMethod.where(type: "Spree::Gateway::Omise", active: true).first %>
+  Omise.setPublicKey("<%= payment_method.preferred_public_key %>");
+</script>
+
+<script>
+  Spree.omisePaymentMethod = $('#card_fields');
+  var omiseResponseHandler;
+  var ccType = {
+    'MasterCard': 'mastercard',
+    'Visa': 'visa'
+  };
+
+  omiseResponseHandler = function(statusCode, response) {
+    if ( statusCode == 200 ) {
+      Spree.omisePaymentMethod.find('#card_number, #card_expiry, #card_code').prop("disabled", true);
+      Spree.omisePaymentMethod.find(".ccType").prop("disabled", false);
+      Spree.omisePaymentMethod.find(".ccType").val(ccType[response.card.brand]);
+      token = response['id'];
+      paymentMethodId = <%= payment_method.id %>
+      paymentMethod = "<input type='hidden' class='omiseToken' name='";
+      Spree.omisePaymentMethod.append(paymentMethod + "[gateway_payment_profile_id]' value='" + token + "'/>");
+      Spree.omisePaymentMethod.append(paymentMethod + "[last_digits]' value='" + response.card.last_digits + "'/>");
+      Spree.omisePaymentMethod.append(paymentMethod + "[month]' value='" + response.card.expiration_month + "'/>");
+      Spree.omisePaymentMethod.append(paymentMethod + "[year]' value='" + response.card.expiration_year + "'/>");
+      return $('#admin_credit_card_form').submit();
+    } else {
+      $('#progress').css("display", "none");
+      $('#admin_user_card_errors').after(
+        '<div id="errorExplanation" class="errorExplanation">'+
+          '<p>' + 
+            capitalizeFirstLetter(response.message) + 
+          '</p>' +
+        '</div>');
+      return false
+    }
+  };
+
+  $(document).ready(function() {
+    return $('#user_card_form_update_btn').click(function(e) {
+      e.preventDefault();
+      if ( user_credit_card_valid() ) {
+        var expiration = $('.cardExpiry:visible').payment('cardExpiryVal');
+        var card = {
+          "name": $('#name').val(),
+          "number": $('.cardNumber:visible').val(),
+          "expiration_month": expiration.month || 0,
+          "expiration_year": expiration.year || 0,
+          "security_code": $('.cardCode:visible').val()
+        };
+        Omise.createToken("card", card, omiseResponseHandler);
+        return false;
+      } else {
+        $('#progress').css("display", "none");
+      }
+    });
+  });
+</script>

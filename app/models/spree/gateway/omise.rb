@@ -41,15 +41,17 @@ module Spree
       provider.capture(money, charge_id, gateway_options)
     end
 
-    def credit(money, charge_id, gateway_options)
-      provider.refund(money, charge_id, {})
+    def credit(money, creditcard, charge_id, gateway_options)
+      provider.refund(money, charge_id)
     end
 
-    def void(charge_id, gateway_options)
+    def void(charge_id, *args)
+      gateway_options = args.last
       provider.void(charge_id, {})
     end
 
-    def cancel(charge_id, gateway_options)
+    def cancel(charge_id, *args)
+      gateway_options = args.last
       provider.void(charge_id, {})
     end
 
@@ -65,6 +67,28 @@ module Spree
       store_card(creditcard, options)
     end
 
+    # create and update customer profile
+    def create_profile_from_cc(creditcard)
+      return nil if creditcard.gateway_payment_profile_id.nil? # i.e no token from omise
+      options = {}
+      options[:email] = Spree::User.find_by_id(creditcard.user_id).email if Spree::User.find_by_id(creditcard.user_id)
+      creditcard.cc_type  = CC_MAPPING[creditcard.cc_type] if CC_MAPPING.include?(creditcard.cc_type)
+      if creditcard.number.blank? && creditcard.gateway_payment_profile_id.present?
+        options[:token_id] = creditcard.gateway_payment_profile_id
+      end
+      options[:customer_id] = creditcard.gateway_customer_profile_id unless creditcard.gateway_customer_profile_id.nil?
+      store_card(creditcard, options)
+    end
+
+    # remove card from customer profile
+    def delete_cc_from_profile(creditcard)
+      return nil if creditcard.gateway_payment_profile_id.nil? # i.e no omise card id
+      options = {}
+      options[:token_id] = creditcard.gateway_payment_profile_id
+      options[:customer_id] = creditcard.gateway_customer_profile_id unless creditcard.gateway_customer_profile_id.nil?
+      unstore_card(creditcard, options)
+    end
+
     private
 
     def store_card(creditcard, options)
@@ -75,13 +99,22 @@ module Spree
           :gateway_payment_profile_id  => response.params['default_card'] # the card id
         )
       else
-        payment.send(:gateway_error, response)
+        payment.send(:gateway_error, response) rescue false
+      end
+    end
+
+    def unstore_card(creditcard, options)
+      response = provider.unstore(creditcard.gateway_customer_profile_id, options)
+      if response.success?
+
+      else
+        payment.send(:gateway_error, response) rescue false
       end
     end
 
     def options_for_purchase_or_authorize(money, creditcard, gateway_options)
       options = {}
-      options[:description] = "(Spree) Order ID: #{gateway_options[:order_id]}"
+      options[:description] = "POLPA Order ID: #{gateway_options[:order_id]}"
       options[:currency]    = gateway_options[:currency]
       options[:ip]          = gateway_options[:ip]
 
